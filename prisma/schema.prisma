@@ -1,0 +1,61 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  // Only Bomboli-owned extensions. Supabase-managed extensions
+  // (pg_graphql, pg_net, supabase_vault, pgcrypto, uuid-ossp, pg_stat_statements)
+  // live in dedicated schemas (extensions/vault/graphql) and are out of
+  // Prisma's concern.
+  extensions = [postgis]
+}
+
+enum UserRole {
+  BUYER
+  SELLER
+  ADMIN
+}
+
+model User {
+  id          String   @id @default(cuid())
+  supabaseId  String   @unique
+  email       String   @unique
+  phone       String?  @unique
+  role        UserRole @default(BUYER)
+  displayName String?
+
+  // Mirrored from auth.users via the Supabase webhook. Null until the user
+  // verifies via Supabase Auth.
+  emailVerifiedAt DateTime?
+  phoneVerifiedAt DateTime?
+  lastSignInAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("users")
+}
+
+/// Every admin action and other sensitive event is appended here.
+/// Written by the AuditInterceptor when `@Audited()` decorates a handler.
+model AuditLog {
+  id            String   @id @default(cuid())
+  actorId       String?  // null for system / unauthenticated events
+  action        String   // free-form, e.g. "seller.verification.update"
+  resourceType  String?  // e.g. "Seller", "Order"
+  resourceId    String?
+  metadata      Json?
+  ipAddress     String?
+  userAgent     String?
+  correlationId String?
+  createdAt     DateTime @default(now())
+
+  @@index([actorId, createdAt])
+  @@index([resourceType, resourceId])
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
