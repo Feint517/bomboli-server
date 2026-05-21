@@ -37,7 +37,13 @@
 11. [Sellers](#sellers)
 12. [Listings](#listings)
 13. [Listing photos](#listing-photos)
-14. [Health & ops](#health--ops)
+14. [Search](#search)
+15. [Home feed](#home-feed)
+16. [Cart](#cart)
+17. [Orders](#orders)
+18. [Payments](#payments)
+19. [Deliveries](#deliveries)
+20. [Health & ops](#health--ops)
 
 ---
 
@@ -1370,6 +1376,335 @@ Use `/cancel` for cancellations.
 
 ---
 
+# Payments
+
+Four payment providers behind a single `POST /v1/orders/:id/payment`
+endpoint:
+
+| Provider | Use case | Flow |
+|---|---|---|
+| `STRIPE` | International cards (diaspora) | Server creates a PaymentIntent → client uses `clientSecret` + Stripe SDK → Stripe webhook drives state. |
+| `PAYPAL` | Web checkout | Server creates a PayPal Order → client redirects to `approveUrl` → on return, client calls `/confirm` to capture → PayPal webhook also drives state. |
+| `PAWAPAY` | Mobile Money (Vodacom M-Pesa, Orange Money, Airtel Money) | Server initiates a USSD-push deposit → user enters PIN on phone → Pawapay webhook confirms. |
+| `MANUAL` | Cash on pickup / out-of-band Mobile Money | Server records intent → admin manually confirms via `/v1/admin/payments/manual-confirm`. |
+
+Each order has exactly one Payment (1:1). Repeated `POST /payment` calls
+return the existing PENDING payment if one exists, or `409` if it's in a
+terminal state (SUCCEEDED, FAILED, CANCELLED, REFUNDED). To retry a failed
+payment, the buyer must start a new order.
+
+**Idempotency.** `POST /v1/orders/:id/payment` requires an `Idempotency-Key`
+header — the same key replays the cached response and (when supported by
+the provider) forwards as the provider's idempotency key so retries never
+double-charge.
+
+**Auto-cancel on failure.** When a provider reports payment failure, the
+backend automatically cancels the order and restocks inventory. This
+happens asynchronously via the `payment.failed` event.
+
+**Provider availability.** Each provider can be enabled independently via
+env vars. Calling a disabled provider returns `503 BOMBOLI_AUTH_PROVIDER_ERROR`.
+The Manual provider is always available.
+
+---
+
+### Payment response shape
+
+```jsonc
+{
+  "id": "cmpe...",
+  "orderId": "cmpe...",
+  "provider": "STRIPE",                  // STRIPE|PAYPAL|PAWAPAY|MANUAL
+  "providerRef": "pi_3O...",             // upstream identifier
+  "amountCents": 70400,
+  "currency": "CDF",
+  "status": "PENDING",                   // PENDING|SUCCEEDED|FAILED|CANCELLED|REFUNDED
+  "capturedAt": "..." | null,
+  "failureReason": "Card declined" | null,
+  "clientPayload": {                     // provider-specific; the client uses these to finish
+    "clientSecret": "pi_..._secret_...", // Stripe
+    "publishableKey": "pk_test_..."
+    // or { "approveUrl": "https://www.paypal.com/..." } for PayPal
+    // or { "depositId": "...", "message": "..." } for Pawapay
+    // or { "message": "Paiement à effectuer hors plateforme." } for Manual
+  },
+  "createdAt": "...",
+  "updatedAt": "..."
+}
+```
+
+### `POST /v1/orders/:id/payment`
+
+Initiate payment for an existing order. **Requires `Idempotency-Key`.**
+**Owner-only** (the order's buyer).
+
+**Request — discriminated by `provider`:**
+
+```jsonc
+// Stripe
+{ "provider": "STRIPE" }
+
+// PayPal (returnUrl + cancelUrl required)
+{
+  "provider": "PAYPAL",
+  "returnUrl": "https://app.bomboli/payment-return",
+  "cancelUrl": "https://app.bomboli/payment-cancel"
+}
+
+// Pawapay (phone + operator required)
+{
+  "provider": "PAWAPAY",
+  "phone": "+243812345678",
+  "operator": "VODACOM_MPESA_COD"   // VODACOM_MPESA_COD | ORANGE_COD | AIRTEL_OAPI_COD
+}
+
+// Manual
+{ "provider": "MANUAL" }
+```
+
+**Success — `201 Created`** — full payment response (see above).
+
+**Errors**
+- `400 BOMBOLI_VALIDATION_FAILED` — missing provider-specific fields
+- `403` — order doesn't belong to caller
+- `409 BOMBOLI_CONFLICT` — order is in CANCELLED/REFUNDED state, or already has a non-PENDING payment
+- `503 BOMBOLI_AUTH_PROVIDER_ERROR` — provider isn't configured on the server
+
+### `GET /v1/payments/:id`
+
+**Auth required.** Accessible to both the buyer of the order and the
+order's seller. `403` otherwise.
+
+### `POST /v1/payments/:id/confirm`
+
+**Auth required. Owner-only (buyer).** Client-driven capture step. Only
+PayPal currently uses this — the client calls it after the user returns
+from the PayPal approval URL.
+
+```jsonc
+{ "providerRef": "5O7..."  /* PayPal order id; optional if stored */ }
+```
+
+**Success — `200 OK`** — updated payment.
+
+**Errors**
+- `409` — payment isn't PENDING, or provider doesn't support explicit confirm
+
+---
+
+## Admin payment endpoints
+
+Admin-only (`@Roles('ADMIN')`); every action is audit-logged.
+
+### `POST /v1/admin/payments/manual-confirm`
+
+Mark a MANUAL payment as `SUCCEEDED`. Records `externalRef` in the audit
+log (USSD transaction id, cash receipt number, etc.).
+
+```jsonc
+{
+  "paymentId": "cmpe...",
+  "externalRef": "USSD-tx-12345",      // optional
+  "note": "Cash received at pickup"    // optional
+}
+```
+
+**Success — `200 OK`** — payment with `status: 'SUCCEEDED'`.
+
+**Errors**
+- `409` — payment isn't MANUAL, or already in a terminal state
+
+### `POST /v1/admin/payments/:id/refund`
+
+Refund a `SUCCEEDED` payment. Routes to the original provider's refund API
+(Stripe/PayPal/Pawapay); Manual just flips bookkeeping.
+
+```jsonc
+{
+  "amountCents": 5000,                  // optional — full refund if omitted
+  "reason": "Damaged on delivery"       // optional
+}
+```
+
+**Success — `200 OK`** — payment with `status: 'REFUNDED'`.
+
+**Errors**
+- `409` — payment isn't SUCCEEDED
+
+---
+
+## Provider webhooks
+
+Internal endpoints that receive provider callbacks. **Each requires a
+valid provider signature.** Configure these URLs in each provider's
+dashboard.
+
+
+
+| Endpoint | Provider | Signature header(s) | Required env vars |
+|---|---|---|---|
+| `POST /v1/internal/stripe/webhook` | Stripe | `Stripe-Signature` | `STRIPE_WEBHOOK_SECRET` |
+| `POST /v1/internal/paypal/webhook` | PayPal | `PayPal-Transmission-Id`, `PayPal-Transmission-Time`, `PayPal-Cert-Url`, `PayPal-Auth-Algo`, `PayPal-Transmission-Sig` | `PAYPAL_CLIENT_ID`, `PAYPAL_CLIENT_SECRET`, `PAYPAL_WEBHOOK_ID` |
+| `POST /v1/internal/pawapay/webhook` | Pawapay | `X-Pawapay-Signature` (HMAC-SHA256 of body) | `PAWAPAY_WEBHOOK_SECRET` |
+
+All return `204 No Content` on accepted events (including `ignored` event
+types like Stripe's `customer.created`). Signature failures return `401`.
+
+The Flutter app **never calls these endpoints directly** — they're for
+the providers' own callbacks.
+
+---
+
+# Deliveries
+
+Delivery scaffolding for the pilot: deliverer roster managed by admin,
+deliverer self-service for location and availability, ETA stamped on
+assignment.
+
+**Pilot model.** A `User` becomes a deliverer when an admin creates a
+`Deliverer` profile for them via `POST /v1/admin/deliverers`. The user's
+role flips to `DELIVERY_PARTNER` automatically. Self-service registration
+isn't supported — onboarding is curated.
+
+**ETA.** Computed at assignment time as a great-circle (Haversine) distance
+between the seller's pickup point (or the listing's location, if no
+pickup point is set) and the delivery address, multiplied by **15 minutes
+per kilometer** (the Kinshasa-traffic pilot constant). Minimum ETA: 5
+minutes.
+
+**Status transitions.** The assigned deliverer can advance the order
+status (`POST /v1/orders/:id/status` — see [Orders](#orders)). Sellers
+retain the same ability — both can move PREPARING → ON_THE_WAY → DELIVERED.
+
+---
+
+### Deliverer response shape
+
+```jsonc
+{
+  "id": "cmpe...",
+  "userId": "cmpe...",
+  "displayName": "Patrick Nguz",
+  "avatarUrl": null,
+  "vehicleType": "MOTO",                 // 'MOTO' | 'VOITURE' | 'VELO' | 'A_PIED'
+  "phoneMasked": "+243•••5678",
+  "available": true,
+  "currentLocation": { "lat": -4.3217, "lng": 15.3125 } | null,
+  "createdAt": "...",
+  "updatedAt": "..."
+}
+```
+
+**Public summary** embedded on order responses (buyer-safe — no full phone,
+no live location):
+
+```jsonc
+"deliverer": {
+  "id": "cmpe...",
+  "displayName": "Patrick Nguz",
+  "avatarUrl": null,
+  "vehicleType": "MOTO",
+  "phoneMasked": "+243•••5678"
+}
+```
+
+---
+
+## Admin endpoints
+
+Admin-only (`@Roles('ADMIN')`); roster operations are audit-logged.
+
+### `POST /v1/admin/deliverers`
+
+Create a deliverer profile for an existing user. Promotes their role to
+`DELIVERY_PARTNER` and stores the masked phone.
+
+```jsonc
+{
+  "userId": "cmpe...",
+  "vehicleType": "MOTO",                 // 'MOTO' | 'VOITURE' | 'VELO' | 'A_PIED'
+  "phone": "+243812345678"                // E.164; server masks to last 4 digits
+}
+```
+
+**Success — `201 Created`** — full `DelivererResponseDto`.
+
+**Errors**
+- `404` — user not found
+- `409 BOMBOLI_CONFLICT` — user already has a deliverer profile
+
+### `GET /v1/admin/deliverers`
+
+List deliverers. Use `?onlyAvailable=true` to filter to currently available
+ones (e.g. for the assignment UI).
+
+**Success — `200 OK`** — `[DelivererResponseDto, ...]`.
+
+### `POST /v1/admin/orders/:id/assign-deliverer`
+
+Assign a deliverer to a `DELIVERY`-fulfillment order. Computes ETA from
+pickup → destination distance.
+
+```jsonc
+{ "delivererId": "cmpe..." }
+```
+
+**Success — `200 OK`**
+```jsonc
+{
+  "orderId": "cmpe...",
+  "delivererId": "cmpe...",
+  "etaAt": "2026-05-20T19:00:00Z",
+  "distanceKm": 4.2
+}
+```
+
+After assignment, the order response includes the [public deliverer
+summary](#deliveries) and a populated `etaAt`.
+
+**Errors**
+- `404` — order or deliverer not found
+- `409 BOMBOLI_CONFLICT` — order is `PICKUP` (no delivery needed), not in
+  `PREPARING` status, or has no address snapshot
+
+---
+
+## Deliverer self endpoints
+
+Available to the deliverer themselves (auth-only; gated by ownership of a
+`Deliverer` profile — returns `404` otherwise).
+
+### `GET /v1/deliveries/me`
+
+Returns the caller's deliverer profile.
+
+**Errors**
+- `404` — the caller has no deliverer profile
+
+### `PATCH /v1/deliveries/me/location`
+
+Update the deliverer's current GPS — the deliverer mobile app calls this
+periodically while on a route.
+
+```jsonc
+{ "lat": -4.3217, "lng": 15.3125 }
+```
+
+**Success — `200 OK`** — full `DelivererResponseDto`.
+
+### `PATCH /v1/deliveries/me/available`
+
+Toggle availability. Off-shift deliverers should set `available: false`
+so the admin's assignment UI doesn't pick them.
+
+```jsonc
+{ "available": true }
+```
+
+**Success — `200 OK`** — full `DelivererResponseDto`.
+
+---
+
 # Health & ops
 
 ### `GET /v1/health`
@@ -1399,8 +1734,8 @@ These endpoints are scheduled in [`v1-roadmap.md`](./v1-roadmap.md):
 | ~~M2~~ | ~~Sellers (`/v1/sellers/...`), listings (`/v1/listings/...`), photo upload~~ — **shipped** |
 | ~~M3~~ | ~~Search (`/v1/search`), home feed rails (`/v1/feed`)~~ — **shipped** |
 | ~~M4~~ | ~~Cart (`/v1/cart`), orders (`/v1/orders`)~~ — **shipped** |
-| M5 | Payments (PayPal, Mobile Money via Pawapay, Stripe) |
-| M6 | Delivery assignment + status updates |
+| ~~M5~~ | ~~Payments (PayPal, Mobile Money via Pawapay, Stripe)~~ — **shipped** |
+| ~~M6~~ | ~~Delivery assignment + status updates~~ — **shipped** |
 | M7 | Chat threads + messages (over Supabase Realtime) |
 | M8 | Reviews + sentiment tags |
 | M9 | Notifications (push + in-app feed) |
@@ -1434,3 +1769,16 @@ change is called out in a `CHANGELOG.md` section appended below.
   (`/v1/orders`, `/v1/orders/:id/status`, `/v1/orders/:id/cancel`).
   `Idempotency-Key` required on order creation. Domain events emitted on
   every status transition.
+- **2026-05-21** — **M5** appended: payments with four providers
+  (Stripe, PayPal, Pawapay Mobile Money, Manual). One payment per order,
+  state machine PENDING → SUCCEEDED/FAILED/CANCELLED → REFUNDED. Webhook
+  endpoints with signature verification at `/v1/internal/{stripe,paypal,pawapay}/webhook`.
+  Admin manual-confirm + refund endpoints (audit-logged). `payment.failed`
+  event auto-cancels the order.
+- **2026-05-21** — **M6** appended: deliverers. Admin-driven roster
+  (`POST /v1/admin/deliverers`, `GET /v1/admin/deliverers`). Assignment
+  endpoint stamps ETA via Haversine × 15 min/km
+  (`POST /v1/admin/orders/:id/assign-deliverer`). Deliverer self endpoints
+  (`/v1/deliveries/me`, `/location`, `/available`). Assigned deliverer can
+  drive the order status alongside the seller. `Order.deliverer` summary
+  surfaced to buyer (masked phone, no live location).

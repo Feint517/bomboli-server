@@ -5,6 +5,7 @@ import { appConfig } from './app.config';
 import { databaseConfig } from './database.config';
 import { validateEnv } from './env.validation';
 import { observabilityConfig } from './observability.config';
+import { paymentsConfig } from './payments.config';
 import { redisConfig } from './redis.config';
 import { supabaseConfig } from './supabase.config';
 
@@ -14,7 +15,14 @@ import { supabaseConfig } from './supabase.config';
       isGlobal: true,
       cache: true,
       validate: validateEnv,
-      load: [appConfig, databaseConfig, redisConfig, supabaseConfig, observabilityConfig],
+      load: [
+        appConfig,
+        databaseConfig,
+        redisConfig,
+        supabaseConfig,
+        observabilityConfig,
+        paymentsConfig,
+      ],
     }),
   ],
 })

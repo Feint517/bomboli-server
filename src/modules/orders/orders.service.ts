@@ -13,6 +13,7 @@ import { DomainException } from '@common/exceptions/domain.exception';
 
 import { PrismaService } from '@infrastructure/database/prisma.service';
 
+import { DeliverersService } from '@modules/deliverers/deliverers.service';
 import { AddressesService } from '@modules/users/addresses/addresses.service';
 import { UsersService } from '@modules/users/users.service';
 
@@ -70,6 +71,7 @@ export class OrdersService {
     private readonly prisma: PrismaService,
     private readonly users: UsersService,
     private readonly addresses: AddressesService,
+    private readonly deliverers: DeliverersService,
     private readonly events: EventEmitter2,
   ) {}
 
@@ -287,7 +289,9 @@ export class OrdersService {
   }
 
   /**
-   * Seller-only forward transition (PREPARING → ON_THE_WAY → DELIVERED).
+   * Forward transition (PREPARING → ON_THE_WAY → DELIVERED). Allowed for
+   * the order's seller OR the assigned deliverer — both can move the order
+   * forward as they perform their part of fulfillment.
    */
   async transition(
     actorSupabaseId: string,
@@ -295,7 +299,7 @@ export class OrdersService {
     to: OrderStatus,
     opts: { etaAt?: Date } = {},
   ): Promise<OrderResponseDto> {
-    const order = await this.requireSellerOf(actorSupabaseId, id);
+    const order = await this.requireSellerOrAssignedDelivererOf(actorSupabaseId, id);
     if (!ALLOWED_TRANSITIONS[order.status].includes(to)) {
       throw new DomainException(
         ErrorCodes.InvalidOrderTransition,
@@ -363,9 +367,41 @@ export class OrdersService {
       );
     }
 
+    return this.compose(await this.cancelInternal(order.id, order.status));
+  }
+
+  /**
+   * System-triggered cancel — called from the `payment.failed` event handler.
+   * Skips the role checks since there's no human actor. Idempotent on
+   * already-cancelled orders.
+   */
+  async cancelBySystem(orderId: string, reason: string): Promise<void> {
+    const order = await this.prisma.order.findUnique({
+      where: { id: orderId },
+      select: { id: true, status: true },
+    });
+    if (!order) return;
+    if (
+      order.status === 'CANCELLED' ||
+      order.status === 'REFUNDED' ||
+      order.status === 'DELIVERED'
+    ) {
+      return;
+    }
+    this.logger.log(`Auto-cancelling order ${orderId}: ${reason}`);
+    await this.cancelInternal(orderId, order.status);
+  }
+
+  // ----- Internals -----
+
+  private async cancelInternal(
+    orderId: string,
+    previousStatus: OrderStatus,
+  ): Promise<Prisma.OrderGetPayload<{ include: { items: true } }>> {
     const updated = await this.prisma.$transaction(async (tx) => {
+      const items = await tx.orderItem.findMany({ where: { orderId } });
       // Restock — but only if the listing still exists.
-      for (const item of order.items) {
+      for (const item of items) {
         await tx.$executeRaw`
           UPDATE listings
           SET "quantityAvailable" = "quantityAvailable" + ${item.quantity},
@@ -375,7 +411,7 @@ export class OrdersService {
         `;
       }
       return tx.order.update({
-        where: { id: order.id },
+        where: { id: orderId },
         data: { status: 'CANCELLED' },
         include: { items: true },
       });
@@ -386,28 +422,36 @@ export class OrdersService {
       buyerId: updated.buyerId,
       sellerId: updated.sellerId,
       status: updated.status,
-      previousStatus: order.status,
+      previousStatus,
       at: updated.updatedAt,
     });
-    return this.compose(updated);
+    return updated;
   }
 
-  // ----- Internals -----
-
-  private async requireSellerOf(
+  /** Accepts either the seller of the order or the deliverer assigned to it. */
+  private async requireSellerOrAssignedDelivererOf(
     actorSupabaseId: string,
     orderId: string,
   ): Promise<{ id: string; status: OrderStatus }> {
     const order = await this.prisma.order.findUnique({
       where: { id: orderId },
-      select: { id: true, status: true, sellerId: true },
+      select: { id: true, status: true, sellerId: true, delivererId: true },
     });
     if (!order) throw new NotFoundException('Order not found');
     const sellerSupabaseId = await this.lookupSellerSupabaseId(order.sellerId);
-    if (sellerSupabaseId !== actorSupabaseId) {
-      throw new ForbiddenException('Only the seller can perform this action');
+    if (sellerSupabaseId === actorSupabaseId) {
+      return { id: order.id, status: order.status };
     }
-    return { id: order.id, status: order.status };
+    if (order.delivererId) {
+      const actorUser = await this.users.findBySupabaseId(actorSupabaseId);
+      if (actorUser) {
+        const actorDelivererId = await this.deliverers.findDelivererIdByUserId(actorUser.id);
+        if (actorDelivererId === order.delivererId) {
+          return { id: order.id, status: order.status };
+        }
+      }
+    }
+    throw new ForbiddenException('Only the seller or assigned deliverer can perform this action');
   }
 
   private async lookupSellerSupabaseId(sellerProfileId: string): Promise<string | null> {
@@ -429,14 +473,17 @@ export class OrdersService {
   private async compose(
     order: Prisma.OrderGetPayload<{ include: { items: true } }>,
   ): Promise<OrderResponseDto> {
-    const sellerSummary = await this.prisma.sellerProfile.findUnique({
-      where: { id: order.sellerId },
-      select: {
-        id: true,
-        bannerUrl: true,
-        user: { select: { displayName: true, avatarUrl: true } },
-      },
-    });
+    const [sellerSummary, delivererSummary] = await Promise.all([
+      this.prisma.sellerProfile.findUnique({
+        where: { id: order.sellerId },
+        select: {
+          id: true,
+          bannerUrl: true,
+          user: { select: { displayName: true, avatarUrl: true } },
+        },
+      }),
+      order.delivererId ? this.deliverers.summaryFor(order.delivererId) : Promise.resolve(null),
+    ]);
     return {
       id: order.id,
       buyerId: order.buyerId,
@@ -459,6 +506,7 @@ export class OrdersService {
       currency: order.currency,
       etaAt: order.etaAt?.toISOString() ?? null,
       delivererId: order.delivererId,
+      deliverer: delivererSummary,
       paymentId: order.paymentId,
       items: order.items.map((item) => ({
         id: item.id,

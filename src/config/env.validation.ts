@@ -45,6 +45,23 @@ export const envSchema = z.object({
   SENTRY_DSN: z.string().optional().default(''),
   SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
   METRICS_TOKEN: z.string().optional().default(''),
+
+  // Payments — Stripe (cards, mostly diaspora). Empty values disable the
+  // provider; trying to use it returns 503 PROVIDER_NOT_CONFIGURED.
+  STRIPE_SECRET_KEY: z.string().optional().default(''),
+  STRIPE_PUBLISHABLE_KEY: z.string().optional().default(''),
+  STRIPE_WEBHOOK_SECRET: z.string().optional().default(''),
+
+  // Payments — PayPal (web checkout).
+  PAYPAL_CLIENT_ID: z.string().optional().default(''),
+  PAYPAL_CLIENT_SECRET: z.string().optional().default(''),
+  PAYPAL_API_BASE: z.string().url().optional().default('https://api-m.sandbox.paypal.com'),
+  PAYPAL_WEBHOOK_ID: z.string().optional().default(''),
+
+  // Payments — Pawapay (Mobile Money aggregator: Vodacom M-Pesa, Orange, Airtel).
+  PAWAPAY_API_KEY: z.string().optional().default(''),
+  PAWAPAY_API_BASE: z.string().url().optional().default('https://api.sandbox.pawapay.io'),
+  PAWAPAY_WEBHOOK_SECRET: z.string().optional().default(''),
 });
 
 export type Env = z.infer<typeof envSchema>;

@@ -1,3 +1,4 @@
+import { DelivererSummaryDto } from '@modules/deliverers/dto/deliverer-response.dto';
 import { ListingSellerSummaryDto } from '@modules/listings/dto/listing-response.dto';
 
 export interface OrderItemResponseDto {
@@ -36,6 +37,8 @@ export interface OrderResponseDto {
   currency: string;
   etaAt: string | null;
   delivererId: string | null;
+  /** Public-safe summary surfaced once a deliverer is assigned. Null otherwise. */
+  deliverer: DelivererSummaryDto | null;
   paymentId: string | null;
   items: OrderItemResponseDto[];
   createdAt: string;

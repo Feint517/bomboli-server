@@ -18,6 +18,7 @@ enum UserRole {
   BUYER
   SELLER
   ADMIN
+  DELIVERY_PARTNER
 }
 
 model User {
@@ -50,6 +51,7 @@ model User {
   addresses     Address[]
   devices       Device[]
   sellerProfile SellerProfile?
+  deliverer     Deliverer?
   cart          Cart?
   orders        Order[]        @relation("OrderBuyer")
 
@@ -232,6 +234,38 @@ model Listing {
 }
 
 // ---------------------------------------------------------------------------
+// M6 — Delivery
+// ---------------------------------------------------------------------------
+
+enum VehicleType {
+  MOTO
+  VOITURE
+  VELO
+  A_PIED
+}
+
+/// A delivery partner. Created by admin (POST /v1/admin/deliverers) — pilot
+/// flow is curated, not self-service. The userId FK links to the existing
+/// User record (whose role is also set to DELIVERY_PARTNER).
+model Deliverer {
+  id              String      @id @default(cuid())
+  userId          String      @unique
+  vehicleType     VehicleType
+  // Last 3 digits visible by default; full number lives on users.phone but
+  // the buyer-facing order response only ever exposes this masked form.
+  phoneMasked     String
+  // Updated by the deliverer's mobile app via /v1/deliveries/me/location.
+  currentLocation Unsupported("geography(Point, 4326)")?
+  available       Boolean     @default(false)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("deliverers")
+}
+
+// ---------------------------------------------------------------------------
 // M4 — Cart, orders
 // ---------------------------------------------------------------------------
 
@@ -304,9 +338,10 @@ model Order {
   createdAt        DateTime        @default(now())
   updatedAt        DateTime        @updatedAt
 
-  buyer  User          @relation("OrderBuyer", fields: [buyerId], references: [id])
-  seller SellerProfile @relation(fields: [sellerId], references: [id])
-  items  OrderItem[]
+  buyer   User          @relation("OrderBuyer", fields: [buyerId], references: [id])
+  seller  SellerProfile @relation(fields: [sellerId], references: [id])
+  items   OrderItem[]
+  payment Payment?
 
   @@index([buyerId, createdAt(sort: Desc)])
   @@index([sellerId, status])
@@ -330,6 +365,76 @@ model OrderItem {
 
   @@index([orderId])
   @@map("order_items")
+}
+
+// ---------------------------------------------------------------------------
+// M5 — Payments
+// ---------------------------------------------------------------------------
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentProviderKind {
+  STRIPE
+  PAYPAL
+  PAWAPAY
+  MANUAL
+}
+
+/// One Payment per Order (1:1). Created when the buyer initiates checkout
+/// via `POST /v1/orders/:id/payment`. The provider drives the lifecycle
+/// through webhook callbacks; we mirror their state.
+model Payment {
+  id            String              @id @default(cuid())
+  orderId       String              @unique
+  provider      PaymentProviderKind
+  // Provider-side identifier (e.g. Stripe PaymentIntent id, PayPal order id,
+  // Pawapay deposit id). Null until the provider's create-intent call returns.
+  providerRef   String?
+  amountCents   Int
+  currency      String
+  status        PaymentStatus       @default(PENDING)
+  capturedAt    DateTime?
+  failureReason String?
+  // Provider-specific payload returned to the client (clientSecret, approveUrl,
+  // depositId, etc.). Never log this in clear — secrets land here for Stripe.
+  metadata      Json?
+  createdAt     DateTime            @default(now())
+  updatedAt     DateTime            @updatedAt
+
+  order    Order            @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  attempts PaymentAttempt[]
+
+  @@index([status, createdAt])
+  @@index([provider, providerRef])
+  @@map("payments")
+}
+
+/// Audit trail of every provider interaction (intent create, confirm,
+/// webhook, refund). Used for reconciliation and debugging in admin tools.
+model PaymentAttempt {
+  id             String              @id @default(cuid())
+  paymentId      String
+  // Kind of call: 'createIntent' | 'confirm' | 'webhook' | 'refund' | 'capture'.
+  kind           String
+  idempotencyKey String?
+  provider       PaymentProviderKind
+  // Redacted request payload (sensitive fields stripped).
+  request        Json?
+  // Sanitized provider response (id, status, error code).
+  response       Json?
+  status         PaymentStatus
+  createdAt      DateTime            @default(now())
+
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId, createdAt])
+  @@map("payment_attempts")
 }
 
 /// Every admin action and other sensitive event is appended here.

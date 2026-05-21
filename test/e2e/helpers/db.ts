@@ -83,6 +83,7 @@ export async function resetUserTables(): Promise<void> {
   // 3. Seed users' derived data (seed users themselves stay).
   await Promise.all([
     db.sellerProfile.deleteMany({ where: { user: { supabaseId: { in: SEED_SUPABASE_IDS } } } }),
+    db.deliverer.deleteMany({ where: { user: { supabaseId: { in: SEED_SUPABASE_IDS } } } }),
     db.address.deleteMany({ where: { user: { supabaseId: { in: SEED_SUPABASE_IDS } } } }),
     db.device.deleteMany({ where: { user: { supabaseId: { in: SEED_SUPABASE_IDS } } } }),
   ]);
@@ -93,6 +94,7 @@ export async function resetUserTables(): Promise<void> {
         where: { supabaseId: u.supabaseId },
         data: {
           email: u.email,
+          phone: null,
           role: u.role,
           displayName: u.displayName,
           avatarUrl: null,
