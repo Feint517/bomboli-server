@@ -20,6 +20,11 @@ export const ErrorCodes = {
   InvalidOtp: 'BOMBOLI_INVALID_OTP',
   PasswordTooWeak: 'BOMBOLI_PASSWORD_TOO_WEAK',
   AuthProviderError: 'BOMBOLI_AUTH_PROVIDER_ERROR',
+
+  // Cart / orders
+  CartSellerConflict: 'BOMBOLI_CART_SELLER_CONFLICT',
+  OutOfStock: 'BOMBOLI_OUT_OF_STOCK',
+  InvalidOrderTransition: 'BOMBOLI_INVALID_ORDER_TRANSITION',
 } as const;
 
 export type ErrorCode = (typeof ErrorCodes)[keyof typeof ErrorCodes];

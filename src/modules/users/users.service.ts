@@ -3,6 +3,8 @@ import { Prisma, User } from '@prisma/client';
 
 import { PrismaService } from '@infrastructure/database/prisma.service';
 
+import type { UserWithLocation } from './users.mapper';
+
 export interface ProvisionInput {
   supabaseId: string;
   email: string;
@@ -12,6 +14,17 @@ export interface ProvisionInput {
   phoneVerifiedAt?: Date | null;
   lastSignInAt?: Date | null;
 }
+
+export interface ProfileUpdateInput {
+  displayName?: string | null;
+  preferredLanguage?: string;
+  themePref?: 'system' | 'light' | 'dark';
+  avatarUrl?: string | null;
+  defaultLocation?: { lat: number; lng: number } | null;
+}
+
+const SUPPORTED_LANGUAGES = ['fr', 'en'] as const;
+const SUPPORTED_THEMES = ['system', 'light', 'dark'] as const;
 
 @Injectable()
 export class UsersService {
@@ -29,6 +42,22 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
     return user;
+  }
+
+  /**
+   * Returns the user along with the lat/lng of their defaultLocation
+   * (PostGIS column that Prisma can't project natively).
+   */
+  async getMeWithLocation(supabaseId: string): Promise<UserWithLocation> {
+    const user = await this.getBySupabaseIdOrFail(supabaseId);
+    const rows = await this.prisma.$queryRaw<{ lat: number | null; lng: number | null }[]>`
+      SELECT
+        ST_Y("defaultLocation"::geometry) AS lat,
+        ST_X("defaultLocation"::geometry) AS lng
+      FROM users
+      WHERE id = ${user.id}
+    `;
+    return { ...user, defaultLat: rows[0]?.lat ?? null, defaultLng: rows[0]?.lng ?? null };
   }
 
   /**
@@ -70,5 +99,49 @@ export class UsersService {
     });
     this.logger.debug(`Provisioned user ${user.id} (supabaseId=${input.supabaseId})`);
     return user;
+  }
+
+  async updateProfile(supabaseId: string, input: ProfileUpdateInput): Promise<UserWithLocation> {
+    if (
+      input.preferredLanguage &&
+      !SUPPORTED_LANGUAGES.includes(input.preferredLanguage as never)
+    ) {
+      throw new Error(`Unsupported language: ${input.preferredLanguage}`);
+    }
+    if (input.themePref && !SUPPORTED_THEMES.includes(input.themePref)) {
+      throw new Error(`Unsupported theme: ${input.themePref}`);
+    }
+
+    const user = await this.getBySupabaseIdOrFail(supabaseId);
+
+    // Standard fields via Prisma.
+    const scalarUpdates: Prisma.UserUpdateInput = {};
+    if (input.displayName !== undefined) scalarUpdates.displayName = input.displayName;
+    if (input.preferredLanguage !== undefined)
+      scalarUpdates.preferredLanguage = input.preferredLanguage;
+    if (input.themePref !== undefined) scalarUpdates.themePref = input.themePref;
+    if (input.avatarUrl !== undefined) scalarUpdates.avatarUrl = input.avatarUrl;
+    if (Object.keys(scalarUpdates).length > 0) {
+      await this.prisma.user.update({ where: { id: user.id }, data: scalarUpdates });
+    }
+
+    // defaultLocation needs raw SQL — `Unsupported` Prisma column.
+    if (input.defaultLocation !== undefined) {
+      if (input.defaultLocation === null) {
+        await this.prisma.$executeRaw`
+          UPDATE users SET "defaultLocation" = NULL, "updatedAt" = NOW() WHERE id = ${user.id}
+        `;
+      } else {
+        const { lat, lng } = input.defaultLocation;
+        await this.prisma.$executeRaw`
+          UPDATE users
+          SET "defaultLocation" = ST_SetSRID(ST_MakePoint(${lng}, ${lat}), 4326)::geography,
+              "updatedAt" = NOW()
+          WHERE id = ${user.id}
+        `;
+      }
+    }
+
+    return this.getMeWithLocation(supabaseId);
   }
 }

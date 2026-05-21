@@ -11,7 +11,7 @@ datasource db {
   // (pg_graphql, pg_net, supabase_vault, pgcrypto, uuid-ossp, pg_stat_statements)
   // live in dedicated schemas (extensions/vault/graphql) and are out of
   // Prisma's concern.
-  extensions = [postgis]
+  extensions = [postgis, pg_trgm]
 }
 
 enum UserRole {
@@ -27,6 +27,16 @@ model User {
   phone       String?  @unique
   role        UserRole @default(BUYER)
   displayName String?
+  avatarUrl   String?
+
+  // Client-side UX preferences mirrored on the server so they survive a
+  // device wipe. 'fr' is the only fully supported language for v1.
+  preferredLanguage String @default("fr")
+  themePref         String @default("system") // 'system' | 'light' | 'dark'
+
+  // Last-known GPS position (web/native geolocation). Used as the default
+  // origin when a request omits an explicit lat/lng for proximity queries.
+  defaultLocation Unsupported("geography(Point, 4326)")?
 
   // Mirrored from auth.users via the Supabase webhook. Null until the user
   // verifies via Supabase Auth.
@@ -37,7 +47,289 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  addresses     Address[]
+  devices       Device[]
+  sellerProfile SellerProfile?
+  cart          Cart?
+  orders        Order[]        @relation("OrderBuyer")
+
   @@map("users")
+}
+
+model Address {
+  id                   String   @id @default(cuid())
+  userId               String
+  label                String // 'home' | 'work' | 'other' | free-form
+  formatted            String
+  location             Unsupported("geography(Point, 4326)")
+  gateCode             String?
+  floor                String?
+  deliveryInstructions String?
+  isDefault            Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("addresses")
+}
+
+model Device {
+  id         String   @id @default(cuid())
+  userId     String
+  platform   String // 'ios' | 'android' | 'web'
+  pushToken  String   @unique
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("devices")
+}
+
+// ---------------------------------------------------------------------------
+// M2 — Sellers, verifications, stats, listings
+// ---------------------------------------------------------------------------
+
+enum VerificationKind {
+  IDENTITY
+  HYGIENE_CHARTER
+  PHONE
+  ADDRESS
+}
+
+enum VerificationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ListingCategory {
+  COSMETIQUE
+  TEXTILE
+  SECONDE_MAIN
+  AGRICOLE
+  SERVICES
+  AUTRES
+}
+
+enum ListingStatus {
+  DRAFT
+  PUBLISHED
+  SOLD_OUT
+  ARCHIVED
+}
+
+model SellerProfile {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  bio              String?
+  heroUrl          String?
+  bannerUrl        String?
+  deliveryRadiusKm Int       @default(15)
+  // Weekly availability as { mon: '9-18' | null, tue: ..., ... }. Free-form
+  // for v1; we'll structure once sellers actually use it.
+  availability     Json?
+  // Spoken languages — ISO 639-1 codes (e.g. ["fr", "ln", "sw"]).
+  languages        String[]  @default([])
+  // PostGIS — separate from listing.location (sellers can have a HQ point
+  // independent of any specific listing). Read/written via raw SQL.
+  pickupPoint      Unsupported("geography(Point, 4326)")?
+  promoText        String?
+  promoActive      Boolean   @default(false)
+  promoExpiresAt   DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  verifications Verification[]
+  stats         SellerStats?
+  carts         Cart[]
+  orders        Order[]
+  listings      Listing[]
+
+  @@map("seller_profiles")
+}
+
+model Verification {
+  id          String             @id @default(cuid())
+  sellerId    String
+  kind        VerificationKind
+  status      VerificationStatus @default(PENDING)
+  // Path in the `verifications` bucket — admin reviews evidence then flips
+  // status. Null until the seller uploads.
+  evidenceUrl String?
+  verifiedAt  DateTime?
+  // User id of the admin who approved/rejected. Null while pending.
+  verifiedBy  String?
+  notes       String?
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  seller SellerProfile @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@unique([sellerId, kind])
+  @@index([status, kind])
+  @@map("verifications")
+}
+
+/// Materialized aggregates derived from reviews. Recomputed by the
+/// `aggregates` job (wired in M8). Ships with default zeros so seller
+/// profile reads have a row to return before reviews exist.
+model SellerStats {
+  sellerId         String   @id
+  avgRating        Float    @default(0)
+  ratingCount      Int      @default(0)
+  // Map of rating -> count, e.g. { "5": 12, "4": 8, ... }.
+  distribution     Json     @default("{}")
+  // 0..1 normalized bars derived from sentiment tags / review categories.
+  hygieneBar       Float    @default(0)
+  qualityBar       Float    @default(0)
+  packagingBar     Float    @default(0)
+  topSentimentTags String[] @default([])
+  updatedAt        DateTime @updatedAt
+
+  seller SellerProfile @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  @@map("seller_stats")
+}
+
+model Listing {
+  id          String          @id @default(cuid())
+  sellerId    String
+  title       String
+  description String
+  category    ListingCategory
+  priceCents  Int
+  currency    String          @default("CDF")
+  location    Unsupported("geography(Point, 4326)")
+  // JSON array of { id, url, sm?, md?, lg?, alt?, uploadedAt }. Variants are
+  // filled in by the image-processing worker.
+  photos      Json            @default("[]")
+  // Free-form { variants?, sizes?, ... } — pilot shape, not validated yet.
+  options     Json?
+  quantityAvailable Int       @default(1)
+  status      ListingStatus   @default(DRAFT)
+  expiresAt   DateTime?
+  publishedAt DateTime?
+  deletedAt   DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  seller SellerProfile @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+
+  // Generated tsvector column for full-text search. Written by Postgres on
+  // every insert/update of title/description — never set from app code.
+  searchVector Unsupported("tsvector")?
+
+  orderItems OrderItem[]
+  cartItems  CartItem[]
+
+  @@index([sellerId])
+  @@index([category, status])
+  @@index([status, publishedAt])
+  @@map("listings")
+}
+
+// ---------------------------------------------------------------------------
+// M4 — Cart, orders
+// ---------------------------------------------------------------------------
+
+enum OrderStatus {
+  PREPARING  // "Préparée"
+  ON_THE_WAY // "En route"
+  DELIVERED  // "Livrée"
+  CANCELLED
+  REFUNDED
+}
+
+enum FulfillmentType {
+  DELIVERY
+  PICKUP
+}
+
+model Cart {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  // Locked the moment the first item is added; nulled when last item is
+  // removed or replace is called with a different seller.
+  sellerId  String?
+  // Snapshotted from the first item's listing.currency. Subsequent items must
+  // match (different currencies cannot coexist in one cart).
+  currency  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seller SellerProfile? @relation(fields: [sellerId], references: [id], onDelete: SetNull)
+  items  CartItem[]
+
+  @@map("carts")
+}
+
+model CartItem {
+  id        String   @id @default(cuid())
+  cartId    String
+  listingId String
+  quantity  Int
+  options   Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cart    Cart    @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  listing Listing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([cartId, listingId])
+  @@index([cartId])
+  @@map("cart_items")
+}
+
+model Order {
+  id               String          @id @default(cuid())
+  buyerId          String
+  sellerId         String
+  status           OrderStatus     @default(PREPARING)
+  fulfillmentType  FulfillmentType
+  // Address snapshot — copied at order creation so order survives address
+  // deletion. Null for PICKUP orders.
+  addressSnapshot  Json?
+  subtotalCents    Int
+  discountCents    Int             @default(0)
+  deliveryFeeCents Int             @default(0)
+  totalCents       Int
+  currency         String          @default("CDF")
+  etaAt            DateTime?
+  delivererId      String?
+  paymentId        String?
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  buyer  User          @relation("OrderBuyer", fields: [buyerId], references: [id])
+  seller SellerProfile @relation(fields: [sellerId], references: [id])
+  items  OrderItem[]
+
+  @@index([buyerId, createdAt(sort: Desc)])
+  @@index([sellerId, status])
+  @@index([status])
+  @@map("orders")
+}
+
+model OrderItem {
+  id                 String  @id @default(cuid())
+  orderId            String
+  listingId          String
+  // Snapshots: order survives listing edits.
+  titleSnapshot      String
+  priceCentsSnapshot Int
+  photoUrlSnapshot   String?
+  quantity           Int
+  options            Json?
+
+  order   Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  listing Listing @relation(fields: [listingId], references: [id])
+
+  @@index([orderId])
+  @@map("order_items")
 }
 
 /// Every admin action and other sensitive event is appended here.

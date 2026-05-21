@@ -29,7 +29,12 @@ import { StorageModule } from '@infrastructure/storage/storage.module';
 import { SupabaseModule } from '@infrastructure/supabase/supabase.module';
 
 import { AuthModule } from '@modules/auth/auth.module';
+import { CartModule } from '@modules/cart/cart.module';
+import { DiscoveryModule } from '@modules/discovery/discovery.module';
 import { HealthModule } from '@modules/health/health.module';
+import { ListingsModule } from '@modules/listings/listings.module';
+import { OrdersModule } from '@modules/orders/orders.module';
+import { SellersModule } from '@modules/sellers/sellers.module';
 import { UsersModule } from '@modules/users/users.module';
 
 @Module({
@@ -63,6 +68,11 @@ import { UsersModule } from '@modules/users/users.module';
     // Domain modules
     UsersModule,
     AuthModule,
+    SellersModule,
+    ListingsModule,
+    DiscoveryModule,
+    CartModule,
+    OrdersModule,
     HealthModule,
   ],
   providers: [
