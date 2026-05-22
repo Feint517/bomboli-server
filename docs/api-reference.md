@@ -12,6 +12,7 @@
 
 1. [Base URL & versioning](#base-url--versioning)
 2. [Authentication model](#authentication-model)
+   - [Capability model](#capability-model)
 3. [Response envelope](#response-envelope)
 4. [Error model](#error-model)
 5. [Common conventions](#common-conventions)
@@ -102,10 +103,29 @@ a fresh session.
 
 - Most routes require a valid `Authorization: Bearer ...` header.
 - Without one, the API returns `401` + `BOMBOLI_UNAUTHORIZED`.
-- Some routes (admin-only) additionally check the user's role — `403` +
-  `BOMBOLI_FORBIDDEN` when missing.
+- Some routes are admin-only — gated on `User.isAdmin`, returning `403` +
+  `BOMBOLI_FORBIDDEN` otherwise.
 - Public routes (signup, login, refresh, password reset, OAuth exchange, OTP,
   health) need no auth.
+
+### Capability model
+
+Bomboli is a marketplace where the same person can simultaneously buy, sell,
+and deliver — so the API treats capabilities as **additive** rather than as a
+single role enum.
+
+- **Buyer** is implicit for every authenticated user — anyone can browse,
+  cart, and order.
+- **Seller** = the user has a `SellerProfile` row. The client can detect this
+  via `sellerProfileId !== null` on [`GET /v1/users/me`](#get-v1usersme).
+- **Deliverer** = the user has a `Deliverer` row. Detect via `delivererId !==
+  null`.
+- **Admin** = `isAdmin: true` on the user record. Gates `/v1/admin/...`
+  endpoints.
+
+A single user can have any combination of those at the same time. The Flutter
+app should branch UI on the presence of `sellerProfileId` / `delivererId` /
+`isAdmin`, not on a single mode.
 
 ---
 
@@ -443,7 +463,9 @@ app launch.
   "supabaseId": "00000000-0000-0000-0000-000000000002",
   "email": "jean@bomboli.test",
   "phone": "+243812345678" | null,
-  "role": "BUYER",                       // 'BUYER' | 'SELLER' | 'ADMIN'
+  "isAdmin": false,
+  "sellerProfileId": "01HXY..." | null,  // non-null ⇒ user is also a seller
+  "delivererId": "cmpe..." | null,       // non-null ⇒ user is also a deliverer
   "displayName": "Jean Kinshasa" | null,
   "avatarUrl": "avatars/uuid/...jpg" | null,
   "preferredLanguage": "fr",             // 'fr' | 'en'
@@ -456,6 +478,9 @@ app launch.
   "updatedAt": "2026-05-20T..."
 }
 ```
+
+See [Capability model](#capability-model) for how to branch UI on these
+fields.
 
 ---
 
@@ -700,10 +725,11 @@ carries a Bearer token. The `listingIds` array is sorted most-recent-first.
 
 # Sellers
 
-A user becomes a seller by **creating a seller profile**. The first call to
-`PUT /v1/sellers/me/profile` does both — creates the profile and flips
-`User.role` from `BUYER` to `SELLER`. Subsequent calls are pure updates.
-`ADMIN` users keep their role.
+A user becomes a seller by **creating a seller profile** — the first call to
+`PUT /v1/sellers/me/profile` creates the row, and from that moment
+[`GET /v1/users/me`](#get-v1usersme) returns a non-null `sellerProfileId`.
+Selling is additive to buying: nothing about the user's other capabilities
+(buyer, deliverer, admin) changes.
 
 The profile bundles every credibility primitive PRODUCT.md §2 calls out:
 bio, delivery radius, availability schedule, spoken languages, pickup point,
@@ -757,8 +783,9 @@ ships reviews.
 
 ### `PUT /v1/sellers/me/profile`
 
-**Auth required.** Creates-or-updates the caller's seller profile. First
-call also flips `User.role` from BUYER to SELLER.
+**Auth required.** Creates-or-updates the caller's seller profile. The first
+call creates the row; subsequent calls are pure updates. After the first
+call, `/v1/users/me` will return a non-null `sellerProfileId`.
 
 **Request — all fields optional**
 ```jsonc
@@ -1183,6 +1210,8 @@ first-time callers.
   `(cart, listing)`).
 - Adding from a different seller returns `409 BOMBOLI_CART_SELLER_CONFLICT`.
 - Adding a non-PUBLISHED listing returns `409 BOMBOLI_CONFLICT`.
+- Adding **your own** listing returns `409 BOMBOLI_CONFLICT` — sellers can't
+  buy from themselves.
 
 ### `PATCH /v1/cart/items/:id`
 
@@ -1494,7 +1523,8 @@ from the PayPal approval URL.
 
 ## Admin payment endpoints
 
-Admin-only (`@Roles('ADMIN')`); every action is audit-logged.
+Admin-only (`@AdminOnly()` — gated on `User.isAdmin`); every action is
+audit-logged.
 
 ### `POST /v1/admin/payments/manual-confirm`
 
@@ -1562,9 +1592,10 @@ deliverer self-service for location and availability, ETA stamped on
 assignment.
 
 **Pilot model.** A `User` becomes a deliverer when an admin creates a
-`Deliverer` profile for them via `POST /v1/admin/deliverers`. The user's
-role flips to `DELIVERY_PARTNER` automatically. Self-service registration
-isn't supported — onboarding is curated.
+`Deliverer` profile for them via `POST /v1/admin/deliverers`. Their `/me`
+response then surfaces a non-null `delivererId`. Self-service registration
+isn't supported — onboarding is curated. Being a deliverer is additive to
+the user's other capabilities (buyer, seller, admin); none are toggled off.
 
 **ETA.** Computed at assignment time as a great-circle (Haversine) distance
 between the seller's pickup point (or the listing's location, if no
@@ -1612,12 +1643,13 @@ no live location):
 
 ## Admin endpoints
 
-Admin-only (`@Roles('ADMIN')`); roster operations are audit-logged.
+Admin-only (`@AdminOnly()` — gated on `User.isAdmin`); roster operations are
+audit-logged.
 
 ### `POST /v1/admin/deliverers`
 
-Create a deliverer profile for an existing user. Promotes their role to
-`DELIVERY_PARTNER` and stores the masked phone.
+Create a deliverer profile for an existing user and store the masked phone.
+The user's `/me` will then return a non-null `delivererId`.
 
 ```jsonc
 {
@@ -1782,3 +1814,12 @@ change is called out in a `CHANGELOG.md` section appended below.
   (`/v1/deliveries/me`, `/location`, `/available`). Assigned deliverer can
   drive the order status alongside the seller. `Order.deliverer` summary
   surfaced to buyer (masked phone, no live location).
+- **2026-05-22** — **breaking: capability model**. `User.role` is gone.
+  `MeResponseDto` no longer carries `role`; instead it exposes `isAdmin`
+  (boolean), `sellerProfileId` (string | null), and `delivererId` (string
+  | null). A user can simultaneously be a buyer, seller, deliverer, and
+  admin — capabilities are additive and derived from the presence of the
+  corresponding profile row. Admin gating moved from `@Roles('ADMIN')` to
+  `@AdminOnly()` (checked against `User.isAdmin`). Cart now rejects
+  self-purchases (`409 BOMBOLI_CONFLICT`) when a seller adds their own
+  listing.

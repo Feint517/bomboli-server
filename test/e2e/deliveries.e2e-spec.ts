@@ -95,7 +95,7 @@ describe('M6 deliveries e2e', () => {
   // ----- Admin creates deliverer -----
 
   describe('Admin — POST /v1/admin/deliverers', () => {
-    it('creates a deliverer for an existing user and promotes their role', async () => {
+    it('creates a deliverer for an existing user; capability surfaces on /me', async () => {
       const buyerUserId = await userId(BUYER_SUB);
       const res = await request(server)
         .post('/v1/admin/deliverers')
@@ -111,8 +111,13 @@ describe('M6 deliveries e2e', () => {
       // Phone is masked to "+243•••5678"
       expect(res.body.data.phoneMasked).toMatch(/5678$/);
 
-      const updated = await getPrisma().user.findUnique({ where: { id: buyerUserId } });
-      expect(updated!.role).toBe('DELIVERY_PARTNER');
+      // The deliverer capability surfaces on the user's /me read — no role
+      // mutation, no admin promotion.
+      const me = await request(server)
+        .get('/v1/users/me')
+        .set('Authorization', TOKEN(buyerToken));
+      expect(me.body.data.delivererId).toBe(res.body.data.id);
+      expect(me.body.data.isAdmin).toBe(false);
     });
 
     it('rejects non-admin callers', async () => {
@@ -300,8 +305,8 @@ describe('M6 deliveries e2e', () => {
         .send({ delivererId: deliverer.body.data.id })
         .expect(200);
 
-      // Buyer's role has flipped to DELIVERY_PARTNER; their token's sub still resolves
-      // to the same user; transition allowed.
+      // Buyer is now also a deliverer (additive capability). They keep
+      // buyer access AND can drive the status of orders they're assigned to.
       const enRoute = await request(server)
         .post(`/v1/orders/${orderId}/status`)
         .set('Authorization', TOKEN(buyerToken))
@@ -327,8 +332,8 @@ describe('M6 deliveries e2e', () => {
         .send({ userId: adminUserId, vehicleType: 'MOTO', phone: '+243812345677' })
         .expect(201);
 
-      // Wait — making admin a deliverer flips their role to DELIVERY_PARTNER, which
-      // breaks subsequent admin-token usage. That's fine for this single assertion.
+      // Admin is now also a deliverer but isn't assigned to this order, so
+      // status changes are still forbidden.
       const res = await request(server)
         .post(`/v1/orders/${orderId}/status`)
         .set('Authorization', TOKEN(adminToken))

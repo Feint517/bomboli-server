@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, UserRole, VehicleType } from '@prisma/client';
+import { Prisma, VehicleType } from '@prisma/client';
 
 import { ErrorCodes } from '@common/constants/error-codes.constants';
 import { DomainException } from '@common/exceptions/domain.exception';
@@ -53,14 +53,15 @@ export class DeliverersService {
       vehicleType: args.vehicleType,
       phoneMasked,
     });
-    // Promote role + record the full phone on the User row if not already set.
-    await this.prisma.user.update({
-      where: { id: args.userId },
-      data: {
-        role: UserRole.DELIVERY_PARTNER,
-        ...(target.phone ? {} : { phone: args.phone }),
-      },
-    });
+    // Stash the full phone on the User row if it isn't already set. The
+    // mere presence of the Deliverer row is what marks the user as a
+    // deliverer — no separate role mutation.
+    if (!target.phone) {
+      await this.prisma.user.update({
+        where: { id: args.userId },
+        data: { phone: args.phone },
+      });
+    }
     return this.compose(row);
   }
 

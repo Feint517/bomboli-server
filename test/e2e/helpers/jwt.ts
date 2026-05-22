@@ -22,7 +22,6 @@ export function signSeedToken(role: TestRole, overrides: SignOverrides = {}): st
       aud: overrides.aud ?? 'authenticated',
       email: overrides.email ?? `test+${role}@bomboli.test`,
       phone: overrides.phone,
-      app_role: role.toUpperCase(),
     },
     overrides.secret ?? SECRET,
     {

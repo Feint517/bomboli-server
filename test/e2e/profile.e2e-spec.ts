@@ -38,7 +38,9 @@ describe('M1 profile e2e', () => {
         .set('Authorization', TOKEN_HEADER(buyerToken));
       expect(res.status).toBe(200);
       expect(res.body.data).toMatchObject({
-        role: 'BUYER',
+        isAdmin: false,
+        sellerProfileId: null,
+        delivererId: null,
         preferredLanguage: 'fr',
         themePref: 'system',
         avatarUrl: null,

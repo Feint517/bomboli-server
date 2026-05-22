@@ -37,6 +37,7 @@ export class CartService {
   ): Promise<CartResponseDto> {
     const user = await this.users.getBySupabaseIdOrFail(actorSupabaseId);
     const listing = await this.requirePurchasableListing(args.listingId);
+    await this.rejectSelfPurchase(user.id, listing.sellerId);
 
     const cart = await this.prisma.$transaction(async (tx) => {
       const existing = await tx.cart.findUnique({ where: { userId: user.id } });
@@ -119,6 +120,7 @@ export class CartService {
   ): Promise<CartResponseDto> {
     const user = await this.users.getBySupabaseIdOrFail(actorSupabaseId);
     const listing = await this.requirePurchasableListing(args.listingId);
+    await this.rejectSelfPurchase(user.id, listing.sellerId);
 
     await this.prisma.$transaction(async (tx) => {
       const existing = await tx.cart.findUnique({ where: { userId: user.id } });
@@ -177,6 +179,22 @@ export class CartService {
       data: { userId },
       include: { items: { include: { listing: true } } },
     });
+  }
+
+  /** Reject buying your own listing — a marketplace user can be both
+   *  buyer and seller, but they can't transact with themselves. */
+  private async rejectSelfPurchase(buyerUserId: string, sellerProfileId: string): Promise<void> {
+    const seller = await this.prisma.sellerProfile.findUnique({
+      where: { id: sellerProfileId },
+      select: { userId: true },
+    });
+    if (seller?.userId === buyerUserId) {
+      throw new DomainException(
+        ErrorCodes.Conflict,
+        'You cannot purchase your own listing.',
+        HttpStatus.CONFLICT,
+      );
+    }
   }
 
   private async requirePurchasableListing(listingId: string): Promise<Listing> {

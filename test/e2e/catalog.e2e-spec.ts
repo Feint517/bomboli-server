@@ -39,11 +39,12 @@ describe('M2 catalog e2e', () => {
   // ----- Sellers -----
 
   describe('Sellers', () => {
-    it('PUT /v1/sellers/me/profile creates a profile and promotes BUYER → SELLER', async () => {
+    it('PUT /v1/sellers/me/profile creates the SellerProfile and surfaces it as a capability', async () => {
       const before = await request(server)
         .get('/v1/users/me')
         .set('Authorization', TOKEN_HEADER(buyerToken));
-      expect(before.body.data.role).toBe('BUYER');
+      expect(before.body.data.sellerProfileId).toBeNull();
+      expect(before.body.data.isAdmin).toBe(false);
 
       const create = await request(server)
         .put('/v1/sellers/me/profile')
@@ -68,7 +69,9 @@ describe('M2 catalog e2e', () => {
       const after = await request(server)
         .get('/v1/users/me')
         .set('Authorization', TOKEN_HEADER(buyerToken));
-      expect(after.body.data.role).toBe('SELLER');
+      expect(after.body.data.sellerProfileId).toBe(create.body.data.id);
+      // Crucial: capability is additive, not a role swap. They're still a buyer.
+      expect(after.body.data.isAdmin).toBe(false);
     });
 
     it('GET /v1/sellers/:id returns the profile with default stats and no verifications', async () => {

@@ -37,19 +37,19 @@ const SEED_USERS = [
   {
     supabaseId: '00000000-0000-0000-0000-000000000001',
     email: 'test+admin@bomboli.test',
-    role: 'ADMIN' as const,
+    isAdmin: true,
     displayName: 'Admin Test',
   },
   {
     supabaseId: '00000000-0000-0000-0000-000000000002',
     email: 'test+buyer@bomboli.test',
-    role: 'BUYER' as const,
+    isAdmin: false,
     displayName: 'Buyer Test',
   },
   {
     supabaseId: '00000000-0000-0000-0000-000000000003',
     email: 'test+seller@bomboli.test',
-    role: 'SELLER' as const,
+    isAdmin: false,
     displayName: 'Seller Test',
   },
 ];
@@ -95,7 +95,7 @@ export async function resetUserTables(): Promise<void> {
         data: {
           email: u.email,
           phone: null,
-          role: u.role,
+          isAdmin: u.isAdmin,
           displayName: u.displayName,
           avatarUrl: null,
           preferredLanguage: 'fr',

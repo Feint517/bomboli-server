@@ -1,8 +1,7 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, Post, Query } from '@nestjs/common';
 
 import { Audited } from '@common/decorators/audited.decorator';
-import { Roles } from '@common/decorators/roles.decorator';
-import { UserRole } from '@common/enums/user-role.enum';
+import { AdminOnly } from '@common/decorators/roles.decorator';
 
 import { DeliverersService } from '../deliverers.service';
 import { DelivererResponseDto } from '../dto/deliverer-response.dto';
@@ -15,7 +14,7 @@ interface AssignResponseDto {
   distanceKm: number;
 }
 
-@Roles(UserRole.Admin)
+@AdminOnly()
 @Controller({ path: 'admin', version: '1' })
 export class DeliverersAdminController {
   constructor(private readonly deliverers: DeliverersService) {}

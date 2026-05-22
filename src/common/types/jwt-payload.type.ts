@@ -1,18 +1,16 @@
-import { UserRole } from '@common/enums/user-role.enum';
-
 /**
  * Shape of the Supabase-issued (or test-minted) JWT after verification.
  *
- * - `role` is Supabase's own claim — always "authenticated" for signed-in users
- * - `app_role` is the Bomboli-side custom claim that mirrors the local
- *   User.role; we read it as a hint but RolesGuard re-checks against the DB.
+ * `role` here is Supabase's own claim — always "authenticated" for
+ * signed-in users — not the Bomboli capability layer. App capabilities
+ * (admin / seller / deliverer) are read from the local DB by the JWT
+ * strategy, never trusted from the token.
  */
 export interface JwtPayload {
   sub: string;
   email?: string;
   phone?: string;
   role?: string;
-  app_role?: UserRole;
   aud?: string;
   exp?: number;
   iat?: number;

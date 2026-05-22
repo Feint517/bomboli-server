@@ -7,8 +7,11 @@
  * Usage:
  *   pnpm test:mint-jwt <admin|buyer|seller>
  *
- * The three roles share fixed UUIDs with the seed script (prisma/seed.ts) so
- * the token's `sub` claim resolves to the seeded User row.
+ * The three identifiers share fixed UUIDs with the seed script
+ * (prisma/seed.ts) so the token's `sub` claim resolves to the seeded
+ * User row. The `admin` user has `isAdmin = true` on the local row;
+ * the other two are regular users (any can become a seller / deliverer
+ * by creating the corresponding profile).
  *
  * The token is printed to stdout — pipe it into your curl/HTTPie scripts:
  *   TOKEN=$(pnpm -s test:mint-jwt buyer)
@@ -21,7 +24,7 @@
 
 import jwt from 'jsonwebtoken';
 
-import { APP_ROLE, TEST_USER_SUPABASE_IDS, TestRole } from './test-user-ids';
+import { TEST_USER_SUPABASE_IDS, TestRole } from './test-user-ids';
 
 function main(): void {
   const role = process.argv[2] as TestRole | undefined;
@@ -46,9 +49,6 @@ function main(): void {
       role: 'authenticated',
       aud: 'authenticated',
       email,
-      // App-side custom claim read by the Bomboli JwtStrategy. The DB lookup
-      // is still the source of truth for role-gated endpoints (RolesGuard).
-      app_role: APP_ROLE[role],
     },
     secret,
     { expiresIn: '24h' },

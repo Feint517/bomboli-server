@@ -5,7 +5,6 @@ import jwt from 'jsonwebtoken';
 import jwksClient from 'jwks-rsa';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 
-import { UserRole } from '@common/enums/user-role.enum';
 import type { AuthenticatedUser } from '@common/types/authenticated-request.type';
 import type { JwtPayload } from '@common/types/jwt-payload.type';
 
@@ -105,7 +104,7 @@ export class SupabaseJwtStrategy extends PassportStrategy(Strategy, 'jwt') {
       // Empty string from the JWT would collide with User.phone @unique; treat
       // falsy values as undefined.
       phone: user.phone ?? undefined,
-      role: user.role as UserRole,
+      isAdmin: user.isAdmin,
     };
   }
 }

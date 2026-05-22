@@ -1,4 +1,4 @@
-import { PrismaClient, UserRole } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
@@ -6,19 +6,19 @@ export const TEST_USERS = [
   {
     supabaseId: '00000000-0000-0000-0000-000000000001',
     email: 'test+admin@bomboli.test',
-    role: UserRole.ADMIN,
+    isAdmin: true,
     displayName: 'Admin Test',
   },
   {
     supabaseId: '00000000-0000-0000-0000-000000000002',
     email: 'test+buyer@bomboli.test',
-    role: UserRole.BUYER,
+    isAdmin: false,
     displayName: 'Buyer Test',
   },
   {
     supabaseId: '00000000-0000-0000-0000-000000000003',
     email: 'test+seller@bomboli.test',
-    role: UserRole.SELLER,
+    isAdmin: false,
     displayName: 'Seller Test',
   },
 ] as const;
@@ -31,14 +31,15 @@ async function main(): Promise<void> {
     data: TEST_USERS.map((u) => ({
       supabaseId: u.supabaseId,
       email: u.email,
-      role: u.role,
+      isAdmin: u.isAdmin,
       displayName: u.displayName,
     })),
   });
 
   console.info(`Seeded ${TEST_USERS.length} users:`);
   for (const u of TEST_USERS) {
-    console.info(`  • ${u.role.padEnd(6)} ${u.email}  (supabaseId=${u.supabaseId})`);
+    const tag = u.isAdmin ? 'ADMIN' : 'USER';
+    console.info(`  • ${tag.padEnd(6)} ${u.email}  (supabaseId=${u.supabaseId})`);
   }
 }
 

@@ -46,18 +46,31 @@ export class UsersService {
 
   /**
    * Returns the user along with the lat/lng of their defaultLocation
-   * (PostGIS column that Prisma can't project natively).
+   * (PostGIS column that Prisma can't project natively) AND the capability
+   * IDs the client needs to decide UI mode — `sellerProfileId` and
+   * `delivererId`. Both are null when the user hasn't onboarded into
+   * those roles.
    */
   async getMeWithLocation(supabaseId: string): Promise<UserWithLocation> {
     const user = await this.getBySupabaseIdOrFail(supabaseId);
-    const rows = await this.prisma.$queryRaw<{ lat: number | null; lng: number | null }[]>`
-      SELECT
-        ST_Y("defaultLocation"::geometry) AS lat,
-        ST_X("defaultLocation"::geometry) AS lng
-      FROM users
-      WHERE id = ${user.id}
-    `;
-    return { ...user, defaultLat: rows[0]?.lat ?? null, defaultLng: rows[0]?.lng ?? null };
+    const [geoRows, sellerProfile, deliverer] = await Promise.all([
+      this.prisma.$queryRaw<{ lat: number | null; lng: number | null }[]>`
+        SELECT
+          ST_Y("defaultLocation"::geometry) AS lat,
+          ST_X("defaultLocation"::geometry) AS lng
+        FROM users
+        WHERE id = ${user.id}
+      `,
+      this.prisma.sellerProfile.findUnique({ where: { userId: user.id }, select: { id: true } }),
+      this.prisma.deliverer.findUnique({ where: { userId: user.id }, select: { id: true } }),
+    ]);
+    return {
+      ...user,
+      defaultLat: geoRows[0]?.lat ?? null,
+      defaultLng: geoRows[0]?.lng ?? null,
+      sellerProfileId: sellerProfile?.id ?? null,
+      delivererId: deliverer?.id ?? null,
+    };
   }
 
   /**

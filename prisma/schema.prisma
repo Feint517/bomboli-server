@@ -14,19 +14,17 @@ datasource db {
   extensions = [postgis, pg_trgm]
 }
 
-enum UserRole {
-  BUYER
-  SELLER
-  ADMIN
-  DELIVERY_PARTNER
-}
-
+/// Bomboli users are buyers by default — every authenticated user can
+/// browse, add to cart, place orders, etc. Additional capabilities
+/// (selling, delivering) are expressed via the presence of profile rows
+/// (`SellerProfile`, `Deliverer`), not via this user record. `isAdmin`
+/// is the only escalated permission that lives on User.
 model User {
-  id          String   @id @default(cuid())
-  supabaseId  String   @unique
-  email       String   @unique
-  phone       String?  @unique
-  role        UserRole @default(BUYER)
+  id          String  @id @default(cuid())
+  supabaseId  String  @unique
+  email       String  @unique
+  phone       String? @unique
+  isAdmin     Boolean @default(false)
   displayName String?
   avatarUrl   String?
 

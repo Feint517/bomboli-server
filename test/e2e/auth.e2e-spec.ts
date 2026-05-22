@@ -69,7 +69,9 @@ describe('Auth e2e', () => {
       expect(res.body.data).toMatchObject({
         supabaseId: '00000000-0000-0000-0000-000000000002',
         email: 'test+buyer@bomboli.test',
-        role: 'BUYER',
+        isAdmin: false,
+        sellerProfileId: null,
+        delivererId: null,
       });
     });
 
@@ -83,7 +85,7 @@ describe('Auth e2e', () => {
 
       const res = await request(server).get('/v1/users/me').set('Authorization', `Bearer ${token}`);
       expect(res.status).toBe(200);
-      expect(res.body.data).toMatchObject({ supabaseId: sub, email, role: 'BUYER' });
+      expect(res.body.data).toMatchObject({ supabaseId: sub, email, isAdmin: false });
 
       const after = await getPrisma().user.findUnique({ where: { supabaseId: sub } });
       expect(after).not.toBeNull();
@@ -138,7 +140,7 @@ describe('Auth e2e', () => {
         email: 'webhook+new@bomboli.test',
         phone: '+243812345678',
         displayName: 'Webhook Test',
-        role: 'BUYER',
+        isAdmin: false,
       });
     });
 

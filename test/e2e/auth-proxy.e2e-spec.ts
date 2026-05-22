@@ -43,7 +43,13 @@ describe('Auth proxy e2e', () => {
         .post('/v1/auth/signup')
         .send({ email, password: PASSWORD, displayName: 'Jean Test' });
       expect(signupRes.status).toBe(201);
-      expect(signupRes.body.data.user).toMatchObject({ email, displayName: 'Jean Test', role: 'BUYER' });
+      expect(signupRes.body.data.user).toMatchObject({
+        email,
+        displayName: 'Jean Test',
+        isAdmin: false,
+        sellerProfileId: null,
+        delivererId: null,
+      });
       // enable_confirmations = false in local config — session should be returned
       expect(signupRes.body.data.session).toMatchObject({ tokenType: 'bearer' });
       expect(signupRes.body.data.requiresEmailConfirmation).toBe(false);

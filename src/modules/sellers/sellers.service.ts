@@ -41,8 +41,10 @@ export class SellersService {
   }
 
   /**
-   * Create-or-update the caller's seller profile. First call also flips the
-   * User.role from BUYER to SELLER. ADMIN users keep their role.
+   * Create-or-update the caller's seller profile. The mere presence of a
+   * SellerProfile row marks the user as a seller — there's no separate
+   * role mutation. A user remains a buyer (can shop, place orders) AND a
+   * seller simultaneously.
    */
   async upsertMyProfile(
     actorSupabaseId: string,
@@ -53,12 +55,6 @@ export class SellersService {
       userId: user.id,
       ...args,
     });
-    if (user.role === 'BUYER') {
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { role: 'SELLER' },
-      });
-    }
     return this.composeResponse(row);
   }
 

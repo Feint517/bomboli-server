@@ -2,8 +2,7 @@ import { Body, Controller, HttpCode, HttpStatus, Param, Post } from '@nestjs/com
 
 import { Audited } from '@common/decorators/audited.decorator';
 import { CurrentUser } from '@common/decorators/current-user.decorator';
-import { Roles } from '@common/decorators/roles.decorator';
-import { UserRole } from '@common/enums/user-role.enum';
+import { AdminOnly } from '@common/decorators/roles.decorator';
 import type { AuthenticatedUser } from '@common/types/authenticated-request.type';
 
 import { PaymentResponseDto } from '../dto/payment-response.dto';
@@ -12,9 +11,9 @@ import { PaymentsService } from '../payments.service';
 
 /**
  * Admin-only payment operations. Both endpoints are audit-logged via the
- * @Audited() decorator. The RolesGuard (global) enforces `ADMIN`.
+ * @Audited() decorator. The global RolesGuard enforces `isAdmin`.
  */
-@Roles(UserRole.Admin)
+@AdminOnly()
 @Controller({ path: 'admin/payments', version: '1' })
 export class PaymentsAdminController {
   constructor(private readonly payments: PaymentsService) {}
