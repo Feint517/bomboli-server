@@ -54,6 +54,33 @@ No raw Prisma or Supabase calls exist in services. No business logic lives in co
 
 Microservices buy independent deploys and team autonomy at the cost of distributed-systems complexity. At Bomboli's launch scale (single team, no domain modules yet), the cost is not justified. The boundaries inside `src/modules/` are explicit enough that any module can graduate to a service later.
 
-## Foundation scope
+## Shipped modules
 
-This is the foundation. There are no domain modules yet — only `auth` (JWT validation) and `health`. The plan is to add listings, sellers, orders, payments, etc. as separate modules once the foundation is exercised end-to-end.
+The foundation and core domain modules (M0–M6) are shipped:
+
+- `auth` — Supabase JWT validation, login/signup/refresh proxy, phone OTP, Supabase auth webhook for JIT user provisioning.
+- `users` — `/users/me`, addresses, devices, recently-viewed.
+- `sellers` — public + owner profile, banner/hero upload.
+- `listings` — CRUD, draft/published/archived lifecycle, photo upload pipeline (BullMQ → variants).
+- `discovery` — `/feed` (6 rails) and `/search` (full-text + PostGIS proximity + category caps).
+- `cart` — single-seller invariant, item management, atomic replace.
+- `orders` — creation from cart, status machine, idempotent, payment-failure auto-cancel via event bus.
+- `payments` — Stripe, PayPal, Pawapay, manual provider; webhook signature verification; admin refund/manual-confirm.
+- `deliverers` — admin-curated roster, real-time location, ETA via Haversine, order assignment.
+- `health` — liveness, readiness (Postgres + Redis), token-gated Prometheus metrics.
+
+Pending milestones (M7–M12): chat, reviews, notifications, promos/wallet, admin surface, production hardening. See [`v1-roadmap.md`](./v1-roadmap.md) for detail, and [`handoff.md`](./handoff.md) for a concrete tour of what exists today.
+
+## Capability model
+
+Users are buyers by default. Additional capabilities are expressed by the **presence of profile rows**, not by a role enum:
+
+- A user with a `SellerProfile` row can sell.
+- A user with a `Deliverer` row can deliver.
+- `User.isAdmin` is the only escalated permission on the user record itself.
+
+(This replaced an earlier `UserRole` enum — see commit `c071500`.)
+
+## Worker process
+
+A second entry point (`src/worker.ts`) boots the same `AppModule` without an HTTP listener. BullMQ processors registered inside feature modules (e.g. image processing under listings) auto-start when the worker boots. Run with `pnpm start:worker:dev` locally.
