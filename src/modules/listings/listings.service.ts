@@ -63,6 +63,11 @@ export class ListingsService {
     return this.mapper.composeMany(rows);
   }
 
+  async listPublished(): Promise<ListingResponseDto[]> {
+  const rows = await this.repo.findPublished();
+  return this.mapper.composeMany(rows);
+  }
+
   async create(
     actorSupabaseId: string,
     input: Omit<CreateListingInput, 'sellerId'>,
@@ -89,6 +94,8 @@ export class ListingsService {
     });
     return this.mapper.composeOne(row);
   }
+
+
 
   async archive(actorSupabaseId: string, id: string): Promise<ListingResponseDto> {
     const row = await this.transitionStatus(actorSupabaseId, id, 'ARCHIVED');

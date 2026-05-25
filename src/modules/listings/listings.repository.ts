@@ -181,4 +181,13 @@ export class ListingsRepository {
       WHERE id = ${id}
     `;
   }
+
+  async findPublished(): Promise<ListingRow[]> {
+  return this.prisma.$queryRaw<ListingRow[]>(Prisma.sql`
+    SELECT ${SELECT_COLUMNS} FROM listings
+    WHERE status = 'PUBLISHED'::"ListingStatus"
+      AND "deletedAt" IS NULL
+    ORDER BY COALESCE("publishedAt", "createdAt") DESC
+  `);
+  }
 }

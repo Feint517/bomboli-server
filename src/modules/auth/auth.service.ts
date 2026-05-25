@@ -1,4 +1,9 @@
-import { HttpStatus, Injectable, Logger } from '@nestjs/common';
+import {
+  HttpStatus,
+  Injectable,
+  InternalServerErrorException,
+  Logger,
+} from '@nestjs/common';
 
 import { ErrorCodes } from '@common/constants/error-codes.constants';
 import { DomainException } from '@common/exceptions/domain.exception';
@@ -8,6 +13,7 @@ import { SupabaseService } from '@infrastructure/supabase/supabase.service';
 
 import { toMeResponse } from '@modules/users/users.mapper';
 import { UsersService } from '@modules/users/users.service';
+import { MailService } from '@modules/mail/mail.service';
 
 import { AuthSessionResponseDto, SessionDto, SignupResponseDto } from './dto/auth-response.dto';
 
@@ -28,37 +34,53 @@ export class AuthService {
     private readonly anon: SupabaseService,
     private readonly admin: SupabaseAdminService,
     private readonly users: UsersService,
+    private readonly mail: MailService,
+
   ) {}
 
-  async signup(args: SignupArgs): Promise<SignupResponseDto> {
-    const { data, error } = await this.anon.client.auth.signUp({
-      email: args.email,
-      password: args.password,
-      phone: args.phone,
-      options: {
-        data: args.displayName ? { displayName: args.displayName } : undefined,
-      },
-    });
-    if (error || !data.user) {
-      throw this.mapAuthError(error, 'signup');
-    }
+async signup(args: SignupArgs): Promise<SignupResponseDto> {
+  const email = args.email.trim().toLowerCase();
 
-    const user = await this.users.provisionFromSupabase({
-      supabaseId: data.user.id,
-      email: data.user.email ?? args.email,
-      phone: data.user.phone ?? args.phone ?? null,
-      displayName: args.displayName ?? null,
-      emailVerifiedAt: parseTs(data.user.email_confirmed_at),
-      phoneVerifiedAt: parseTs(data.user.phone_confirmed_at),
-      lastSignInAt: parseTs(data.user.last_sign_in_at),
-    });
+  const { data, error } = await this.admin.client.auth.admin.generateLink({
+    type: 'signup',
+    email,
+    password: args.password,
+    options: {
+      data: args.displayName ? { displayName: args.displayName } : undefined,
+    },
+  });
 
-    return {
-      user: toMeResponse(user),
-      session: data.session ? toSession(data.session) : null,
-      requiresEmailConfirmation: data.session === null,
-    };
+  if (error || !data.user) {
+    throw this.mapAuthError(error, 'signup');
   }
+
+  const token = data.properties?.email_otp ?? null;
+
+  if (!token) {
+    this.logger.warn(`Signup verification token missing for ${email}`);
+
+    throw new InternalServerErrorException(
+      'Could not generate email verification code',
+    );
+  }
+
+  const user = await this.users.provisionFromSupabase({
+    supabaseId: data.user.id,
+    email: data.user.email ?? email,
+    phone: args.phone?.trim() || null,
+    displayName: args.displayName ?? null,
+    emailVerifiedAt: null,
+    phoneVerifiedAt: null,
+    lastSignInAt: null,
+  });
+
+await this.mail.sendEmailVerification(email, token);
+  return {
+    user: toMeResponse(user),
+    session: null,
+    requiresEmailConfirmation: true,
+  };
+}
 
   async loginWithPassword(email: string, password: string): Promise<AuthSessionResponseDto> {
     const { data, error } = await this.anon.client.auth.signInWithPassword({ email, password });
@@ -126,14 +148,29 @@ export class AuthService {
    * Sends a password-reset email. Always returns success — we don't reveal
    * whether the email is registered (anti-enumeration).
    */
-  async requestPasswordReset(email: string): Promise<void> {
-    const { error } = await this.anon.client.auth.resetPasswordForEmail(email);
-    if (error) {
-      // Log but don't surface — we want this to look like a no-op to clients
-      // whether or not the email exists.
-      this.logger.warn(`Password reset request failed for ${email}: ${error.message}`);
-    }
+async requestPasswordReset(email: string): Promise<void> {
+  const { data, error } = await this.admin.client.auth.admin.generateLink({
+    type: 'recovery',
+    email,
+  });
+
+  if (error) {
+    this.logger.warn(`Password reset link generation failed for ${email}: ${error.message}`);
+    return;
   }
+
+  const token =
+    data.properties?.email_otp ??
+    data.properties?.hashed_token ??
+    null;
+
+  if (!token) {
+    this.logger.warn(`Password reset token missing for ${email}`);
+    return;
+  }
+
+  await this.mail.sendPasswordResetEmail(email, token);
+}
 
   /**
    * Two-step: verify the recovery OTP to obtain a session, then update the
@@ -187,7 +224,7 @@ export class AuthService {
     const user = await this.users.provisionFromSupabase({
       supabaseId: supabaseUser.id,
       email: supabaseUser.email ?? '',
-      phone: supabaseUser.phone ?? null,
+      phone: supabaseUser.phone?.trim() || null,
       emailVerifiedAt: parseTs(supabaseUser.email_confirmed_at),
       phoneVerifiedAt: parseTs(supabaseUser.phone_confirmed_at),
       lastSignInAt: parseTs(supabaseUser.last_sign_in_at) ?? new Date(),

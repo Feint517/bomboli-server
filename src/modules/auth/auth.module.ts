@@ -10,11 +10,12 @@ import { PhoneOtpController } from './phone-otp.controller';
 import { SupabaseJwtStrategy } from './strategies/supabase-jwt.strategy';
 import { SupabaseWebhookController } from './webhooks/supabase-webhook.controller';
 import { SupabaseWebhookGuard } from './webhooks/supabase-webhook.guard';
-
+import { MailModule } from '@modules/mail/mail.module';
 @Module({
   imports: [
     ConfigModule.forFeature(supabaseConfig),
     PassportModule.register({ defaultStrategy: 'jwt' }),
+     MailModule,
   ],
   controllers: [AuthController, PhoneOtpController, SupabaseWebhookController],
   providers: [AuthService, SupabaseJwtStrategy, SupabaseWebhookGuard],

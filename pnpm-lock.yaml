@@ -92,6 +92,9 @@ importers:
       nestjs-zod:
         specifier: ^4.3.1
         version: 4.3.1(@nestjs/common@11.1.19(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@11.1.19)(zod@3.25.76)
+      nodemailer:
+        specifier: ^8.0.7
+        version: 8.0.7
       passport:
         specifier: ^0.7.0
         version: 0.7.0
@@ -162,6 +165,9 @@ importers:
       '@types/node':
         specifier: ^22.10.5
         version: 22.19.18
+      '@types/nodemailer':
+        specifier: ^8.0.0
+        version: 8.0.0
       '@types/passport-jwt':
         specifier: ^4.0.1
         version: 4.0.1
@@ -201,6 +207,9 @@ importers:
       prisma:
         specifier: ^6.2.1
         version: 6.19.3(magicast@0.3.5)(typescript@5.9.3)
+      supabase:
+        specifier: ^2.101.0
+        version: 2.101.0
       supertest:
         specifier: ^7.0.0
         version: 7.2.2
@@ -1729,6 +1738,46 @@ packages:
     resolution: {integrity: sha512-Ejfa37M5xoIwoxVebxRahnwubPo8g22qkXQ4p50+N9MIvU9UZoN+A8dwVPtczzGf8oV/YXN80ZPxK4aWXuSN/A==}
     engines: {node: '>=20.0.0'}
 
+  '@supabase/cli-darwin-arm64@2.101.0':
+    resolution: {integrity: sha512-SoWYzu2CIE+rADWsZH6H0YZYF8nV2YMelZLbjAqzahb5RRgFOTMWGhKCUj6g4KlNvocUnU19JObUJ7oCx/9aHg==}
+    cpu: [arm64]
+    os: [darwin]
+
+  '@supabase/cli-darwin-x64@2.101.0':
+    resolution: {integrity: sha512-rPES03BF9KYkirq3X1Yll+T+eORueRvC858Yp2+2aQMvB4qxi6k+WI+ilCQ7NGzOJ3G0jl/ZG/KsSjZIa4AJ6g==}
+    cpu: [x64]
+    os: [darwin]
+
+  '@supabase/cli-linux-arm64-musl@2.101.0':
+    resolution: {integrity: sha512-B5JFFKKpJLLMwn8vWUB7j5euZPytiDOLo9WYXp0mshg45OaFKjRcDImSzBzx4k0W8MK2x75rFEURca90Ic60Ug==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@supabase/cli-linux-arm64@2.101.0':
+    resolution: {integrity: sha512-E+hN1GRIFEi+U1Jf4Omw/gjwpSRTpJ5jai58tQana15AaXt3GCoG7z2YzWVnzD/mvAubTqA7SLHsV+A2lcdTGQ==}
+    cpu: [arm64]
+    os: [linux]
+
+  '@supabase/cli-linux-x64-musl@2.101.0':
+    resolution: {integrity: sha512-pr9Ar1/aVaQVqjNSfwRgXHWJznQTIaxblGO+hKIl9k55Ajahiq8GConCwx6DjX1Wa9VW//5Dji+O0pkmFSfcHw==}
+    cpu: [x64]
+    os: [linux]
+
+  '@supabase/cli-linux-x64@2.101.0':
+    resolution: {integrity: sha512-7iU9uA+8pbmW5uz+yGxU0fM83a+8SH/gtKmSSRZrOu9vIGcugg9gLbN9GlWkG5P7I7wEjnoVKb7Jzea6onSeQA==}
+    cpu: [x64]
+    os: [linux]
+
+  '@supabase/cli-windows-arm64@2.101.0':
+    resolution: {integrity: sha512-mSnFDhTIAe9cr1iifv+DTQzpY/0WphywED2YT3yMGeu94jjxrXrreQkywxEaeSXTnc4ys1umtnWOB1CaBlYKag==}
+    cpu: [arm64]
+    os: [win32]
+
+  '@supabase/cli-windows-x64@2.101.0':
+    resolution: {integrity: sha512-xzZpybVWq62VF102abZr1EP3BbA2bYecwYm3G2dJk+6ua7nAIodu1fiGHAvBSR0BLGQmesNb6KCneawNL3XBsQ==}
+    cpu: [x64]
+    os: [win32]
+
   '@supabase/functions-js@2.105.4':
     resolution: {integrity: sha512-JVNKbBft3Qkja+WlGaE026AJ2AH9K0UTsxsfvEIHgd4zFrBor4BYRCrYFrv9IDsvVqkF72wKDsODJl5GY/C4tA==}
     engines: {node: '>=20.0.0'}
@@ -1941,6 +1990,9 @@ packages:
 
   '@types/node@22.19.18':
     resolution: {integrity: sha512-9v00a+dn2yWVsYDEunWC4g/TcRKVq3r8N5FuZp7u0SGrPvdN9c2yXI9bBuf5Fl0hNCb+QTIePTn5pJs2pwBOQQ==}
+
+  '@types/nodemailer@8.0.0':
+    resolution: {integrity: sha512-fyf8jWULsCo0d0BuoQ75i6IeoHs47qcqxWc7yUdUcV0pOZGjUTTOvwdG1PRXUDqN/8A64yQdQdnA2pZgcdi+cA==}
 
   '@types/passport-jwt@4.0.1':
     resolution: {integrity: sha512-Y0Ykz6nWP4jpxgEUYq8NoVZeCQPo1ZndJLfapI249g1jHChvRfZRO/LS3tqu26YgAS/laI1qx98sYGz0IalRXQ==}
@@ -4008,6 +4060,10 @@ packages:
   node-releases@2.0.38:
     resolution: {integrity: sha512-3qT/88Y3FbH/Kx4szpQQ4HzUbVrHPKTLVpVocKiLfoYvw9XSGOX2FmD2d6DrXbVYyAQTF2HeF6My8jmzx7/CRw==}
 
+  nodemailer@8.0.7:
+    resolution: {integrity: sha512-pkjE4mkBzQjdJT4/UmlKl3pX0rC9fZmjh7c6C9o7lv66Ac6w9WCnzPzhbPNxwZAzlF4mdq4CSWB5+FbK6FWCow==}
+    engines: {node: '>=6.0.0'}
+
   normalize-url@8.1.1:
     resolution: {integrity: sha512-JYc0DPlpGWB40kH5g07gGTrYuMqV653k3uBKY6uITPWds3M0ov3GaWGp9lbE3Bzngx8+XkfzgvASb9vk9JDFXQ==}
     engines: {node: '>=14.16'}
@@ -4691,6 +4747,10 @@ packages:
   strtok3@10.3.5:
     resolution: {integrity: sha512-ki4hZQfh5rX0QDLLkOCj+h+CVNkqmp/CMf8v8kZpkNVK6jGQooMytqzLZYUVYIZcFZ6yDB70EfD8POcFXiF5oA==}
     engines: {node: '>=18'}
+
+  supabase@2.101.0:
+    resolution: {integrity: sha512-9wqlvXGeI+VjOMUKOGEpcZzTJGLia6IOv8LWN3W2u8F6Xiv4ZqAuTuXCp3MWfkhV5x9KQaBtN5d6IiLEMWzkJA==}
+    hasBin: true
 
   superagent@10.3.0:
     resolution: {integrity: sha512-B+4Ik7ROgVKrQsXTV0Jwp2u+PXYLSlqtDAhYnkkD+zn3yg8s/zjA2MeGayPoY/KICrbitwneDHrjSotxKL+0XQ==}
@@ -6423,6 +6483,30 @@ snapshots:
     dependencies:
       tslib: 2.8.1
 
+  '@supabase/cli-darwin-arm64@2.101.0':
+    optional: true
+
+  '@supabase/cli-darwin-x64@2.101.0':
+    optional: true
+
+  '@supabase/cli-linux-arm64-musl@2.101.0':
+    optional: true
+
+  '@supabase/cli-linux-arm64@2.101.0':
+    optional: true
+
+  '@supabase/cli-linux-x64-musl@2.101.0':
+    optional: true
+
+  '@supabase/cli-linux-x64@2.101.0':
+    optional: true
+
+  '@supabase/cli-windows-arm64@2.101.0':
+    optional: true
+
+  '@supabase/cli-windows-x64@2.101.0':
+    optional: true
+
   '@supabase/functions-js@2.105.4':
     dependencies:
       tslib: 2.8.1
@@ -6633,6 +6717,10 @@ snapshots:
   '@types/node@22.19.18':
     dependencies:
       undici-types: 6.21.0
+
+  '@types/nodemailer@8.0.0':
+    dependencies:
+      '@types/node': 22.19.18
 
   '@types/passport-jwt@4.0.1':
     dependencies:
@@ -8988,6 +9076,8 @@ snapshots:
 
   node-releases@2.0.38: {}
 
+  nodemailer@8.0.7: {}
+
   normalize-url@8.1.1: {}
 
   npm-run-path@4.0.1:
@@ -9779,6 +9869,17 @@ snapshots:
   strtok3@10.3.5:
     dependencies:
       '@tokenizer/token': 0.3.0
+
+  supabase@2.101.0:
+    optionalDependencies:
+      '@supabase/cli-darwin-arm64': 2.101.0
+      '@supabase/cli-darwin-x64': 2.101.0
+      '@supabase/cli-linux-arm64': 2.101.0
+      '@supabase/cli-linux-arm64-musl': 2.101.0
+      '@supabase/cli-linux-x64': 2.101.0
+      '@supabase/cli-linux-x64-musl': 2.101.0
+      '@supabase/cli-windows-arm64': 2.101.0
+      '@supabase/cli-windows-x64': 2.101.0
 
   superagent@10.3.0:
     dependencies:

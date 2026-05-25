@@ -26,6 +26,12 @@ import type { Request } from 'express';
 export class ListingsController {
   constructor(private readonly listings: ListingsService) {}
 
+  @Public()
+  @Get()
+  listPublished(): Promise<ListingResponseDto[]> {
+    return this.listings.listPublished();
+  }
+
   /**
    * Public listing detail. If the caller IS authenticated (Bearer present),
    * we record the view in their recently-viewed set. The endpoint itself is
