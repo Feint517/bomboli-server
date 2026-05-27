@@ -12,9 +12,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   public readonly client: Redis;
 
   constructor(@Inject(redisConfig.KEY) private readonly cfg: ConfigType<typeof redisConfig>) {
+    // family: 0 enables dual-stack DNS so we can resolve IPv6-only hosts
+    // (e.g. Railway's redis.railway.internal) without breaking IPv4 setups.
     const opts: RedisOptions = {
       host: this.cfg.host,
       port: this.cfg.port,
+      family: 0,
       maxRetriesPerRequest: null,
       lazyConnect: true,
     };
@@ -22,7 +25,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       opts.password = this.cfg.password;
     }
     this.client = this.cfg.url
-      ? new Redis(this.cfg.url, { maxRetriesPerRequest: null, lazyConnect: true })
+      ? new Redis(this.cfg.url, { family: 0, maxRetriesPerRequest: null, lazyConnect: true })
       : new Redis(opts);
   }
 

@@ -18,6 +18,7 @@ import { CacheService } from './cache.service';
           host: config.get<string>('redis.host', 'localhost'),
           port: config.get<number>('redis.port', 6381),
           password: config.get<string>('redis.password') || undefined,
+          family: 0,
         }),
       }),
     }),
